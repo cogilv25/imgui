@@ -5425,6 +5425,9 @@ bool ImGui::Selectable(const char* label, bool* p_selected, ImGuiSelectableFlags
 // - MultiSelectItemHeader() [Internal]
 // - MultiSelectItemFooter() [Internal]
 //-------------------------------------------------------------------------
+// FIXME: Shift+click on an item that has no multi-select data could treat selection the same as the last item with such data?
+// The problem is that this may conflict with other behaviors of those items?
+//-------------------------------------------------------------------------
 
 ImGuiMultiSelectData* ImGui::BeginMultiSelect(ImGuiMultiSelectFlags flags, void* range_ref, bool range_ref_is_selected)
 {
@@ -5447,7 +5450,7 @@ ImGuiMultiSelectData* ImGui::BeginMultiSelect(ImGuiMultiSelectFlags flags, void*
     }
 
     // Auto clear when using Navigation to move within the selection (we compare SelectScopeId so it possible to use multiple lists inside a same window)
-    if (g.NavJustMovedToId != 0 && g.NavJustMovedToSelectScopeId == g.MultiSelectScopeId)
+    if (g.NavJustMovedToId != 0 && g.NavJustMovedToMultiSelectScopeId == g.MultiSelectScopeId)
     {
         if (g.IO.KeyShift)
             state->InRequestSetRangeNav = true;
@@ -5491,8 +5494,9 @@ ImGuiMultiSelectData* ImGui::EndMultiSelect()
 void ImGui::SetNextItemMultiSelectData(void* item_data)
 {
     ImGuiContext& g = *GImGui;
+    IM_ASSERT(g.MultiSelectScopeId != 0);
     g.NextItemMultiSelectData = item_data;
-    g.NextItemMultiSelectDataIsSet = true;
+    g.NextItemMultiSelectScopeId = g.MultiSelectScopeId;
 }
 
 void ImGui::MultiSelectItemHeader(ImGuiID id, bool* p_selected)
@@ -5500,7 +5504,7 @@ void ImGui::MultiSelectItemHeader(ImGuiID id, bool* p_selected)
     ImGuiContext& g = *GImGui;
     ImGuiMultiSelectState* state = &g.MultiSelectState;
 
-    IM_ASSERT(g.NextItemMultiSelectDataIsSet && "Forgot to call SetNextItemMultiSelectData() prior to item, required in BeginMultiSelect()/EndMultiSelect() scope");
+    IM_ASSERT(g.NextItemMultiSelectScopeId == g.MultiSelectScopeId && "Forgot to call SetNextItemMultiSelectData() prior to item, required in BeginMultiSelect()/EndMultiSelect() scope");
     void* item_data = g.NextItemMultiSelectData;
 
     // Apply Clear/SelectAll requests requested by BeginMultiSelect().
@@ -5541,7 +5545,7 @@ void ImGui::MultiSelectItemFooter(ImGuiID id, bool* p_selected, bool* p_pressed)
     ImGuiMultiSelectState* state = &g.MultiSelectState;
 
     void* item_data = g.NextItemMultiSelectData;
-    g.NextItemMultiSelectDataIsSet = false;
+    g.NextItemMultiSelectScopeId = 0;
 
     bool selected = *p_selected;
     bool pressed = *p_pressed;

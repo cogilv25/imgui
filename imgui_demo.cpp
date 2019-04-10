@@ -883,7 +883,7 @@ static void ShowDemoWindowWidgets()
             };
 
             int COUNT = 1000;
-            ShowHelpMarker("Hold CTRL and click to select multiple items. Hold SHIFT to select a range.");
+            HelpMarker("Hold CTRL and click to select multiple items. Hold SHIFT to select a range.");
             ImGui::CheckboxFlags("io.ConfigFlags: NavEnableKeyboard", (unsigned int *)&ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NavEnableKeyboard);
 
             ImGui::ListBoxHeader("##Basket", ImVec2(-1, ImGui::GetFontSize() * 20));
@@ -944,7 +944,7 @@ static void ShowDemoWindowWidgets()
             static float spacing = 0.0f;
             ImGui::PushItemWidth(100);
             ImGui::SliderFloat("SelectableSpacing", &spacing, 0, 20, "%.0f");
-            ImGui::SameLine(); ShowHelpMarker("Selectable cancel out the regular spacing between items by extending itself by ItemSpacing/2 in each direction.\nThis has two purposes:\n- Avoid the gap between items so the mouse is always hitting something.\n- Avoid the gap between items so range-selected item looks connected.\nBy changing SelectableSpacing we can enforce spacing between selectables.");
+            ImGui::SameLine(); HelpMarker("Selectable cancel out the regular spacing between items by extending itself by ItemSpacing/2 in each direction.\nThis has two purposes:\n- Avoid the gap between items so the mouse is always hitting something.\n- Avoid the gap between items so range-selected item looks connected.\nBy changing SelectableSpacing we can enforce spacing between selectables.");
             ImGui::PopItemWidth();
             ImGui::Spacing();
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 8));
@@ -2975,7 +2975,7 @@ void ImGui::ShowStyleEditor(ImGuiStyle* ref)
             ImGui::SliderFloat2("FramePadding", (float*)&style.FramePadding, 0.0f, 20.0f, "%.0f");
             ImGui::SliderFloat2("ItemSpacing", (float*)&style.ItemSpacing, 0.0f, 20.0f, "%.0f");
             ImGui::SliderFloat2("ItemInnerSpacing", (float*)&style.ItemInnerSpacing, 0.0f, 20.0f, "%.0f");
-            ImGui::SliderFloat2("SelectableSpacing", (float*)&style.SelectableSpacing, 0.0f, 20.0f, "%.0f"); ImGui::SameLine(); ShowHelpMarker("SelectableSpacing must be < ItemSpacing.\nSelectables display their highlight after canceling out the effect of ItemSpacing, so they can be look tightly packed. This setting allows to enforce spacing between them.");
+            ImGui::SliderFloat2("SelectableSpacing", (float*)&style.SelectableSpacing, 0.0f, 20.0f, "%.0f"); ImGui::SameLine(); HelpMarker("SelectableSpacing must be < ItemSpacing.\nSelectables display their highlight after canceling out the effect of ItemSpacing, so they can be look tightly packed. This setting allows to enforce spacing between them.");
             ImGui::SliderFloat2("TouchExtraPadding", (float*)&style.TouchExtraPadding, 0.0f, 10.0f, "%.0f");
             ImGui::SliderFloat("IndentSpacing", &style.IndentSpacing, 0.0f, 30.0f, "%.0f");
             ImGui::SliderFloat("ScrollbarSize", &style.ScrollbarSize, 1.0f, 20.0f, "%.0f");
