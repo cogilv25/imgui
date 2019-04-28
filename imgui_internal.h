@@ -63,8 +63,9 @@ struct ImDrawDataBuilder;           // Helper to build a ImDrawData instance
 struct ImDrawListSharedData;        // Data shared between all ImDrawList instances
 struct ImGuiColorMod;               // Stacked color modifier, backup of modified data so we can restore it
 struct ImGuiColumnData;             // Storage data for a single column
-struct ImGuiColumnsSet;             // Storage data for a columns set
+struct ImGuiColumns;                // Storage data for a columns set
 struct ImGuiContext;                // Main imgui context
+struct ImGuiDataTypeInfo;           // Type information associated to a ImGuiDataType enum
 struct ImGuiGroupData;              // Stacked storage data for BeginGroup()/EndGroup()
 struct ImGuiInputTextState;         // Internal state of the currently focused/edited text input box
 struct ImGuiItemHoveredDataBackup;  // Backup and restore IsItemHovered() internal data
@@ -153,7 +154,7 @@ IMGUI_API int           ImTextCountUtf8BytesFromStr(const ImWchar* in_text, cons
 
 // Helpers: Misc
 IMGUI_API ImU32         ImHashData(const void* data, size_t data_size, ImU32 seed = 0);
-IMGUI_API ImU32         ImHashStr(const char* data, size_t data_size, ImU32 seed = 0);
+IMGUI_API ImU32         ImHashStr(const char* data, size_t data_size = 0, ImU32 seed = 0);
 IMGUI_API void*         ImFileLoadToMemory(const char* filename, const char* file_open_mode, size_t* out_file_size = NULL, int padding_bytes = 0);
 IMGUI_API FILE*         ImFileOpen(const char* filename, const char* file_open_mode);
 static inline bool      ImCharIsBlankA(char c)          { return c == ' ' || c == '\t'; }
@@ -501,7 +502,6 @@ struct ImVec1
     ImVec1(float _x) { x = _x; }
 };
 
-
 // 2D axis aligned bounding-box
 // NB: we can't rely on ImVec2 math operators being available here
 struct IMGUI_API ImRect
@@ -536,6 +536,14 @@ struct IMGUI_API ImRect
     void        ClipWithFull(const ImRect& r)       { Min = ImClamp(Min, r.Min, r.Max); Max = ImClamp(Max, r.Min, r.Max); } // Full version, ensure both points are fully clipped.
     void        Floor()                             { Min.x = (float)(int)Min.x; Min.y = (float)(int)Min.y; Max.x = (float)(int)Max.x; Max.y = (float)(int)Max.y; }
     bool        IsInverted() const                  { return Min.x > Max.x || Min.y > Max.y; }
+};
+
+// Type information associated to one ImGuiDataType. Retrieve with DataTypeGetInfo().
+struct ImGuiDataTypeInfo
+{
+    size_t      Size;           // Size in byte
+    const char* PrintFmt;       // Default printf format for the type
+    const char* ScanFmt;        // Default scanf format for the type
 };
 
 // Stacked color modifier, backup of modified data so we can restore it
@@ -630,7 +638,7 @@ struct ImGuiWindowSettings
 struct ImGuiSettingsHandler
 {
     const char* TypeName;       // Short description stored in .ini file. Disallowed characters: '[' ']'
-    ImGuiID     TypeHash;       // == ImHashStr(TypeName, 0, 0)
+    ImGuiID     TypeHash;       // == ImHashStr(TypeName)
     void*       (*ReadOpenFn)(ImGuiContext* ctx, ImGuiSettingsHandler* handler, const char* name);              // Read: Called when entering into a new ini entry e.g. "[Window][Name]"
     void        (*ReadLineFn)(ImGuiContext* ctx, ImGuiSettingsHandler* handler, void* entry, const char* line); // Read: Called for every line of text within an ini entry
     void        (*WriteAllFn)(ImGuiContext* ctx, ImGuiSettingsHandler* handler, ImGuiTextBuffer* out_buf);      // Write: Output every entries into 'out_buf'
@@ -658,10 +666,10 @@ struct ImGuiColumnData
     ImGuiColumnsFlags   Flags;              // Not exposed
     ImRect              ClipRect;
 
-    ImGuiColumnData()   { OffsetNorm = OffsetNormBeforeResize = 0.0f; Flags = 0; }
+    ImGuiColumnData()   { OffsetNorm = OffsetNormBeforeResize = 0.0f; Flags = ImGuiColumnsFlags_None; }
 };
 
-struct ImGuiColumnsSet
+struct ImGuiColumns
 {
     ImGuiID             ID;
     ImGuiColumnsFlags   Flags;
@@ -671,23 +679,23 @@ struct ImGuiColumnsSet
     int                 Count;
     float               MinX, MaxX;
     float               LineMinY, LineMaxY;
-    float               StartPosY;          // Copy of CursorPos
-    float               StartMaxPosX;       // Copy of CursorMaxPos
+    float               BackupCursorPosY;       // Backup of CursorPos at the time of BeginColumns()
+    float               BackupCursorMaxPosX;    // Backup of CursorMaxPos at the time of BeginColumns()
     ImVector<ImGuiColumnData> Columns;
 
-    ImGuiColumnsSet()   { Clear(); }
+    ImGuiColumns()      { Clear(); }
     void Clear()
     {
         ID = 0;
-        Flags = 0;
+        Flags = ImGuiColumnsFlags_None;
         IsFirstFrame = false;
         IsBeingResized = false;
         Current = 0;
         Count = 1;
         MinX = MaxX = 0.0f;
         LineMinY = LineMaxY = 0.0f;
-        StartPosY = 0.0f;
-        StartMaxPosX = 0.0f;
+        BackupCursorPosY = 0.0f;
+        BackupCursorMaxPosX = 0.0f;
         Columns.clear();
     }
 };
@@ -938,7 +946,7 @@ struct ImGuiContext
     // Widget state
     ImGuiInputTextState     InputTextState;
     ImFont                  InputTextPasswordFont;
-    ImGuiID                 ScalarAsInputTextId;                // Temporary text input when CTRL+clicking on a slider, etc.
+    ImGuiID                 TempInputTextId;                    // Temporary text input when CTRL+clicking on a slider, etc.
     ImGuiColorEditFlags     ColorEditOptions;                   // Store user options for color edit widgets
     ImVec4                  ColorPickerRef;
     bool                    DragCurrentAccumDirty;
@@ -1075,7 +1083,7 @@ struct ImGuiContext
 
         CurrentTabBar = NULL;
 
-        ScalarAsInputTextId = 0;
+        TempInputTextId = 0;
         ColorEditOptions = ImGuiColorEditFlags__OptionsDefault;
         DragCurrentAccumDirty = false;
         DragCurrentAccum = 0.0f;
@@ -1123,7 +1131,7 @@ struct IMGUI_API ImGuiWindowTempData
     ImVec2                  PrevLineSize;
     float                   PrevLineTextBaseOffset;
     int                     TreeDepth;
-    ImU32                   TreeDepthMayJumpToParentOnPop; // Store a copy of !g.NavIdIsAlive for TreeDepth 0..31
+    ImU32                   TreeStoreMayJumpToParentOnPop; // Store a copy of !g.NavIdIsAlive for TreeDepth 0..31.. Could be turned into a ImU64 if necessary.
     ImGuiID                 LastItemId;
     ImGuiItemStatusFlags    LastItemStatusFlags;
     ImRect                  LastItemRect;           // Interaction rect
@@ -1146,6 +1154,7 @@ struct IMGUI_API ImGuiWindowTempData
     // We store the current settings outside of the vectors to increase memory locality (reduce cache misses). The vectors are rarely modified. Also it allows us to not heap allocate for short-lived windows which are not using those settings.
     ImGuiItemFlags          ItemFlags;              // == ItemFlagsStack.back() [empty == ImGuiItemFlags_Default]
     float                   ItemWidth;              // == ItemWidthStack.back(). 0.0: default, >0.0: width in pixels, <0.0: align xx pixels to the right of window
+    float                   NextItemWidth;
     float                   TextWrapPos;            // == TextWrapPosStack.back() [empty == -1.0f]
     ImVector<ImGuiItemFlags>ItemFlagsStack;
     ImVector<float>         ItemWidthStack;
@@ -1156,7 +1165,7 @@ struct IMGUI_API ImGuiWindowTempData
     ImVec1                  Indent;                 // Indentation / start position from left of window (increased by TreePush/TreePop, etc.)
     ImVec1                  GroupOffset;
     ImVec1                  ColumnsOffset;          // Offset to the current column (if ColumnsCurrent > 0). FIXME: This and the above should be a stack to allow use cases like Tree->Column->Tree. Need revamp columns API.
-    ImGuiColumnsSet*        ColumnsSet;             // Current columns set
+    ImGuiColumns*           CurrentColumns;         // Current columns set
 
     ImGuiWindowTempData()
     {
@@ -1164,7 +1173,7 @@ struct IMGUI_API ImGuiWindowTempData
         CurrentLineSize = PrevLineSize = ImVec2(0.0f, 0.0f);
         CurrentLineTextBaseOffset = PrevLineTextBaseOffset = 0.0f;
         TreeDepth = 0;
-        TreeDepthMayJumpToParentOnPop = 0x00;
+        TreeStoreMayJumpToParentOnPop = 0x00;
         LastItemId = 0;
         LastItemStatusFlags = 0;
         LastItemRect = LastItemDisplayRect = ImRect();
@@ -1181,13 +1190,14 @@ struct IMGUI_API ImGuiWindowTempData
 
         ItemFlags = ImGuiItemFlags_Default_;
         ItemWidth = 0.0f;
+        NextItemWidth = +FLT_MAX;
         TextWrapPos = -1.0f;
         memset(StackSizesBackup, 0, sizeof(StackSizesBackup));
 
         Indent = ImVec1(0.0f);
         GroupOffset = ImVec1(0.0f);
         ColumnsOffset = ImVec1(0.0f);
-        ColumnsSet = NULL;
+        CurrentColumns = NULL;
     }
 };
 
@@ -1221,7 +1231,7 @@ struct IMGUI_API ImGuiWindow
     bool                    WantCollapseToggle;
     bool                    SkipItems;                          // Set when items can safely be all clipped (e.g. window not visible or collapsed)
     bool                    Appearing;                          // Set during the frame where the window is appearing (or re-appearing)
-    bool                    Hidden;                             // Do not display (== (HiddenFramesForResize > 0) ||
+    bool                    Hidden;                             // Do not display (== (HiddenFrames*** > 0))
     bool                    HasCloseButton;                     // Set when the window has a close button (p_open != NULL)
     signed char             ResizeBorderHeld;                   // Current border being held for resize (-1: none, otherwise 0-3)
     short                   BeginCount;                         // Number of Begin() during the current frame (generally 0 or 1, 1+ if appending via multiple Begin/End pairs)
@@ -1250,7 +1260,7 @@ struct IMGUI_API ImGuiWindow
     float                   ItemWidthDefault;
     ImGuiMenuColumns        MenuColumns;                        // Simplified columns storage for menu items
     ImGuiStorage            StateStorage;
-    ImVector<ImGuiColumnsSet> ColumnsStorage;
+    ImVector<ImGuiColumns>  ColumnsStorage;
     float                   FontWindowScale;                    // User scale multiplier per-window
     int                     SettingsIdx;                        // Index into SettingsWindow[] (indices are always valid as we only grow the array from the back)
 
@@ -1429,6 +1439,7 @@ namespace ImGui
     IMGUI_API void          SetHoveredID(ImGuiID id);
     IMGUI_API void          KeepAliveID(ImGuiID id);
     IMGUI_API void          MarkItemEdited(ImGuiID id);
+    IMGUI_API void          PushOverrideID(ImGuiID id);
 
     // Basic Helpers for widget code
     IMGUI_API void          ItemSize(const ImVec2& size, float text_offset_y = 0.0f);
@@ -1438,12 +1449,14 @@ namespace ImGui
     IMGUI_API bool          IsClippedEx(const ImRect& bb, ImGuiID id, bool clip_even_when_logged);
     IMGUI_API bool          FocusableItemRegister(ImGuiWindow* window, ImGuiID id);   // Return true if focus is requested
     IMGUI_API void          FocusableItemUnregister(ImGuiWindow* window);
-    IMGUI_API ImVec2        CalcItemSize(ImVec2 size, float default_x, float default_y);
+    IMGUI_API float         GetNextItemWidth();
+    IMGUI_API ImVec2        CalcItemSize(ImVec2 size, float default_w, float default_h);
     IMGUI_API float         CalcWrapWidthForPos(const ImVec2& pos, float wrap_pos_x);
-    IMGUI_API void          PushMultiItemsWidths(int components, float width_full = 0.0f);
+    IMGUI_API void          PushMultiItemsWidths(int components, float width_full);
     IMGUI_API void          PushItemFlag(ImGuiItemFlags option, bool enabled);
     IMGUI_API void          PopItemFlag();
     IMGUI_API bool          IsItemToggledSelection();                                           // was the last item selection toggled? (after Selectable(), TreeNode() etc. We only returns toggle _event_ in order to handle clipping correctly)
+    IMGUI_API ImVec2        GetContentRegionMaxScreen();
 
     // Logging/Capture
     IMGUI_API void          LogBegin(ImGuiLogType type, int auto_open_depth);   // -> BeginCapture() when we design v2 api, for now stay under the radar by using the old name.
@@ -1488,6 +1501,8 @@ namespace ImGui
     IMGUI_API void          BeginColumns(const char* str_id, int count, ImGuiColumnsFlags flags = 0); // setup number of columns. use an identifier to distinguish multiple column sets. close with EndColumns().
     IMGUI_API void          EndColumns();                                                             // close columns
     IMGUI_API void          PushColumnClipRect(int column_index = -1);
+    IMGUI_API ImGuiID       GetColumnsID(const char* str_id, int count);
+    IMGUI_API ImGuiColumns* FindOrCreateColumns(ImGuiWindow* window, ImGuiID id);
 
     // Tab Bars
     IMGUI_API bool          BeginTabBarEx(ImGuiTabBar* tab_bar, const ImRect& bb, ImGuiTabBarFlags flags);
@@ -1540,7 +1555,7 @@ namespace ImGui
     IMGUI_API bool          SplitterBehavior(const ImRect& bb, ImGuiID id, ImGuiAxis axis, float* size1, float* size2, float min_size1, float min_size2, float hover_extend = 0.0f, float hover_visibility_delay = 0.0f);
     IMGUI_API bool          TreeNodeBehavior(ImGuiID id, ImGuiTreeNodeFlags flags, const char* label, const char* label_end = NULL);
     IMGUI_API bool          TreeNodeBehaviorIsOpen(ImGuiID id, ImGuiTreeNodeFlags flags = 0);                     // Consume previous SetNextTreeNodeOpened() data, if any. May return true when logging
-    IMGUI_API void          TreePushRawID(ImGuiID id);
+    IMGUI_API void          TreePushOverrideID(ImGuiID id);
 
     // Template functions are instantiated in imgui_widgets.cpp for a finite number of types.
     // To use them externally (for custom widget) you may need an "extern template" statement in your code in order to link to existing instances and silence Clang warnings (see #2036).
@@ -1550,9 +1565,14 @@ namespace ImGui
     template<typename T, typename FLOAT_T>                      IMGUI_API float SliderCalcRatioFromValueT(ImGuiDataType data_type, T v, T v_min, T v_max, float power, float linear_zero_pos);
     template<typename T, typename SIGNED_T>                     IMGUI_API T     RoundScalarWithFormatT(const char* format, ImGuiDataType data_type, T v);
 
+    // Data type helpers
+    IMGUI_API const ImGuiDataTypeInfo*  DataTypeGetInfo(ImGuiDataType data_type);
+    IMGUI_API int           DataTypeFormatString(char* buf, int buf_size, ImGuiDataType data_type, const void* data_ptr, const char* format);
+
     // InputText
     IMGUI_API bool          InputTextEx(const char* label, const char* hint, char* buf, int buf_size, const ImVec2& size_arg, ImGuiInputTextFlags flags, ImGuiInputTextCallback callback = NULL, void* user_data = NULL);
-    IMGUI_API bool          InputScalarAsWidgetReplacement(const ImRect& bb, ImGuiID id, const char* label, ImGuiDataType data_type, void* data_ptr, const char* format);
+    IMGUI_API bool          TempInputTextScalar(const ImRect& bb, ImGuiID id, const char* label, ImGuiDataType data_type, void* data_ptr, const char* format);
+    inline bool             TempInputTextIsActive(ImGuiID id) { ImGuiContext& g = *GImGui; return (g.ActiveId == id && g.TempInputTextId == id); }
 
     // Color
     IMGUI_API void          ColorTooltip(const char* text, const float* col, ImGuiColorEditFlags flags);
@@ -1584,8 +1604,10 @@ extern void                 ImGuiTestEngineHook_PreNewFrame(ImGuiContext* ctx);
 extern void                 ImGuiTestEngineHook_PostNewFrame(ImGuiContext* ctx);
 extern void                 ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx, const ImRect& bb, ImGuiID id);
 extern void                 ImGuiTestEngineHook_ItemInfo(ImGuiContext* ctx, ImGuiID id, const char* label, ImGuiItemStatusFlags flags);
+#define IMGUI_TEST_ENGINE_ITEM_ADD(_BB, _ID)                ImGuiTestEngineHook_ItemAdd(&g, _BB, _ID)               // Register status flags
 #define IMGUI_TEST_ENGINE_ITEM_INFO(_ID, _LABEL, _FLAGS)  ImGuiTestEngineHook_ItemInfo(&g, _ID, _LABEL, _FLAGS)   // Register status flags
 #else
+#define IMGUI_TEST_ENGINE_ITEM_ADD(_BB, _ID)                do { } while (0)
 #define IMGUI_TEST_ENGINE_ITEM_INFO(_ID, _LABEL, _FLAGS)  do { } while (0)
 #endif
 
