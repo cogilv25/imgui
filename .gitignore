@@ -13,6 +13,10 @@ examples/*/Debug/*
 examples/*/Release/*
 examples/*/x64/*
 
+##Executables and objects
+bin/*
+intermediate-files/*
+
 ## Visual Studio artifacts
 .vs
 ipch
